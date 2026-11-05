@@ -41,8 +41,6 @@ export function AdminFleet() {
     }
   }
 
-  const opName = (id: string | null) => operators.data?.find((o) => o.id === id)?.name ?? "—";
-
   return (
     <div className="stack">
       <h1>Fleet</h1>
@@ -73,7 +71,7 @@ export function AdminFleet() {
                       <span className={`pill pill--${c.status}`}>{c.status.replace("_", " ")}</span>
                     </td>
                     <td>
-                      <select value={c.defaultOperatorId ?? ""} onChange={(e) => update(c.id, { defaultOperatorId: e.target.value || null })}>
+                      <select aria-label={`Default operator for ${c.name}`} value={c.defaultOperatorId ?? ""} onChange={(e) => update(c.id, { defaultOperatorId: e.target.value || null })}>
                         <option value="">—</option>
                         {(operators.data ?? []).map((o) => (
                           <option key={o.id} value={o.id}>
@@ -81,7 +79,6 @@ export function AdminFleet() {
                           </option>
                         ))}
                       </select>
-                      <span className="sr-only">{opName(c.defaultOperatorId)}</span>
                     </td>
                     <td className="muted">{c.lastSeenAt ? formatDateTime(c.lastSeenAt) : "—"}</td>
                     <td>

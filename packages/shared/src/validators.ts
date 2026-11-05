@@ -116,16 +116,38 @@ export const paymentSchema = z.object({
   reference: z.string().trim().max(100).optional(),
 });
 
-export const craneUpsertSchema = z.object({
+const REG_NO = /^([A-Z]{2})\s*(\d{1,2})\s*([A-Z]{0,3})\s*(\d{1,4})$/;
+
+/** Indian vehicle registration, normalised to "TN 30 AB 1234" so duplicates are caught. */
+export const regNoSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(REG_NO, "Use a vehicle number like TN 30 AB 1234")
+  .transform((s) => s.match(REG_NO)!.slice(1).filter(Boolean).join(" "));
+
+const craneFields = {
   classId: z.enum(craneClassIds),
-  regNo: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[A-Z]{2}\s?\d{1,2}\s?[A-Z]{0,3}\s?\d{1,4}$/, "Use a vehicle number like TN 30 AB 1234"),
+  regNo: regNoSchema,
   name: z.string().trim().min(1).max(80),
-  status: z.enum(["available", "maintenance"]).default("available"),
   defaultOperatorId: z.string().nullable().optional(),
+};
+
+export const craneUpsertSchema = z.object({
+  ...craneFields,
+  status: z.enum(["available", "maintenance"]).default("available"),
+});
+
+/**
+ * PATCH body: every field optional and no defaults. (In zod 4, `.partial()` keeps
+ * `.default()` values, which would silently reset the crane status on every edit.)
+ */
+export const craneUpdateSchema = z.object({
+  classId: craneFields.classId.optional(),
+  regNo: craneFields.regNo.optional(),
+  name: craneFields.name.optional(),
+  defaultOperatorId: craneFields.defaultOperatorId,
+  status: z.enum(["available", "maintenance"]).optional(),
 });
 
 export const upsertUserSchema = z.object({

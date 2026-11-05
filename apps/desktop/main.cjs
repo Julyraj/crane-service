@@ -55,7 +55,13 @@ function createWindow() {
   // Keep navigation inside the configured server; open everything else in the browser.
   const isAppUrl = (url) => {
     const { serverUrl } = readConfig();
-    return url.startsWith("file://") || (serverUrl && url.startsWith(serverUrl));
+    if (url.startsWith("file://")) return true;
+    try {
+      // Compare whole origins: a prefix check would accept https://myserver.com.evil.com
+      return Boolean(serverUrl) && new URL(url).origin === serverUrl;
+    } catch {
+      return false;
+    }
   };
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^(https?|mailto|tel|upi):/.test(url)) shell.openExternal(url);
@@ -74,14 +80,26 @@ function createWindow() {
   loadApp();
 }
 
-ipcMain.handle("cranego:get-config", () => readConfig());
-ipcMain.handle("cranego:save-config", (_e, cfg) => {
+// Only the bundled settings/offline pages (file://) may read or change the server address,
+// never the remote web app.
+const fromLocalPage = (e) => {
+  if (!String(e.senderFrame?.url ?? "").startsWith("file://")) throw new Error("Not allowed");
+};
+ipcMain.handle("cranego:get-config", (e) => {
+  fromLocalPage(e);
+  return readConfig();
+});
+ipcMain.handle("cranego:save-config", (e, cfg) => {
+  fromLocalPage(e);
   const serverUrl = normaliseUrl(cfg.serverUrl);
   writeConfig({ serverUrl });
   loadApp();
   return { serverUrl };
 });
-ipcMain.handle("cranego:retry", () => loadApp());
+ipcMain.handle("cranego:retry", (e) => {
+  fromLocalPage(e);
+  loadApp();
+});
 
 const menu = Menu.buildFromTemplate([
   {

@@ -33,9 +33,17 @@ interface Draft {
   paymentMethod: "upi" | "cash" | "bank_transfer" | "credit";
 }
 
-function toLocalInput(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+// Bookings are always in India time (IST, UTC+5:30), whatever timezone the device uses.
+const IST_OFFSET_MS = 330 * 60_000;
+
+/** Date -> "YYYY-MM-DDTHH:mm" in IST, for <input type="datetime-local">. */
+function toIstInput(d: Date) {
+  return new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(0, 16);
+}
+
+/** "YYYY-MM-DDTHH:mm" entered as IST -> Date. */
+function fromIstInput(v: string) {
+  return new Date(`${v}:00+05:30`);
 }
 
 function loadDraft(): Partial<Draft> {
@@ -52,12 +60,7 @@ export function Book() {
   const { user, catalog } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const tomorrow9 = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 0, 0, 0);
-    return toLocalInput(d);
-  }, []);
+  const tomorrow9 = useMemo(() => `${toIstInput(new Date(Date.now() + 86_400_000)).slice(0, 10)}T09:00`, []);
 
   const [draft, setDraft] = useState<Draft>(() => ({
     craneClassId: params.get("crane") ?? "hydra-13",
@@ -88,7 +91,7 @@ export function Book() {
 
   const scheduledIso = useMemo(() => {
     if (draft.when === "now") return new Date(Date.now() + 5 * 60_000).toISOString();
-    const d = new Date(draft.scheduledLocal);
+    const d = fromIstInput(draft.scheduledLocal);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
   }, [draft.when, draft.scheduledLocal]);
 
@@ -156,7 +159,11 @@ export function Book() {
     if (!draft.site) return setError("Pin the work site on the map.");
     if (!scheduledIso) return setError("Pick a valid date and time.");
     if (!user) {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch {
+        /* storage unavailable: the form is simply not restored after sign-in */
+      }
       navigate("/login?next=/book");
       return;
     }
@@ -170,7 +177,7 @@ export function Book() {
           duration: draft.duration,
           siteLat: draft.site.lat,
           siteLng: draft.site.lng,
-          scheduledAt: scheduledIso,
+          scheduledAt: draft.when === "now" ? new Date(Date.now() + 5 * 60_000).toISOString() : scheduledIso,
           siteAddress: draft.siteAddress,
           contactName: draft.contactName,
           contactPhone: draft.contactPhone,
@@ -181,7 +188,11 @@ export function Book() {
           paymentMethod: draft.paymentMethod,
         },
       });
-      sessionStorage.removeItem(DRAFT_KEY);
+      try {
+        sessionStorage.removeItem(DRAFT_KEY);
+      } catch {
+        /* ignore */
+      }
       navigate(`/bookings/${booking.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -261,8 +272,8 @@ export function Book() {
             ))}
           </div>
           {draft.when === "later" && (
-            <Field label="Start date & time">
-              <input type="datetime-local" value={draft.scheduledLocal} min={toLocalInput(new Date())} onChange={(e) => set("scheduledLocal", e.target.value)} required />
+            <Field label="Start date & time (India time)">
+              <input type="datetime-local" value={draft.scheduledLocal} min={toIstInput(new Date())} onChange={(e) => set("scheduledLocal", e.target.value)} required />
             </Field>
           )}
           <div className="row2">

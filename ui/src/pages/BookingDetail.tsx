@@ -341,7 +341,7 @@ function AdminPanel({ booking: b, busy, act }: { booking: Booking; busy: boolean
   const [cancelReason, setCancelReason] = useState("");
   const booked = getCraneClass(b.craneClassId)!;
   const eligible = (cranes.data ?? []).filter(
-    (c) => (getCraneClass(c.classId)?.capacityTons ?? 0) >= booked.capacityTons && (c.status === "available" || c.id === b.craneId),
+    (c) => (getCraneClass(c.classId)?.capacityTons ?? 0) >= booked.capacityTons && (c.status !== "maintenance" || c.id === b.craneId),
   ).sort((x, y) => (getCraneClass(x.classId)?.capacityTons ?? 0) - (getCraneClass(y.classId)?.capacityTons ?? 0));
 
   return (
@@ -400,7 +400,8 @@ function AdminPanel({ booking: b, busy, act }: { booking: Booking; busy: boolean
               </select>
             </Field>
           </div>
-          {eligible.length === 0 && <p className="note note--warn">No available crane of {booked.name} or larger. Free one up in Fleet.</p>}
+          {eligible.length === 0 && <p className="note note--warn">No crane of {booked.name} or larger is in service. Check Fleet.</p>}
+          <p className="fineprint">A crane or operator already booked at an overlapping time will be refused.</p>
           <button className="btn btn--primary" disabled={busy || !craneId || !operatorId}>
             {b.status === "assigned" ? "Reassign" : "Assign & notify"}
           </button>

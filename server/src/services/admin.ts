@@ -40,6 +40,12 @@ function istBoundaries(now = new Date()) {
 }
 
 export function createAdminService(db: Db) {
+  function assertOperator(id: string | null | undefined) {
+    if (id == null) return;
+    const u = db.prepare("SELECT role FROM users WHERE id = ?").get(id) as { role: string } | undefined;
+    if (u?.role !== "operator") throw badRequest("Default operator must be a team member with the operator role");
+  }
+
   const num = (sql: string, ...p: string[]) => Number((db.prepare(sql).get(...p) as { n: number | null }).n ?? 0);
 
   return {
@@ -52,8 +58,8 @@ export function createAdminService(db: Db) {
         bookingsToday: num("SELECT COUNT(*) AS n FROM bookings WHERE created_at >= ?", day),
         openRequests: num("SELECT COUNT(*) AS n FROM bookings WHERE status IN ('requested','confirmed')"),
         activeJobs: num("SELECT COUNT(*) AS n FROM bookings WHERE status IN ('assigned','en_route','on_site','in_progress')"),
-        completedThisMonth: num("SELECT COUNT(*) AS n FROM bookings WHERE status = 'completed' AND updated_at >= ?", month),
-        revenueThisMonth: num("SELECT SUM(amount_due) AS n FROM bookings WHERE status = 'completed' AND updated_at >= ?", month),
+        completedThisMonth: num("SELECT COUNT(*) AS n FROM bookings WHERE status = 'completed' AND completed_at >= ?", month),
+        revenueThisMonth: num("SELECT SUM(amount_due) AS n FROM bookings WHERE status = 'completed' AND completed_at >= ?", month),
         outstanding: num("SELECT SUM(amount_due) AS n FROM bookings WHERE payment_status != 'paid' AND status IN ('completed','cancelled')"),
         fleet: {
           total: fleet.reduce((s, f) => s + f.n, 0),
@@ -78,6 +84,7 @@ export function createAdminService(db: Db) {
     },
 
     createCrane(input: { classId: string; regNo: string; name: string; status: "available" | "maintenance"; defaultOperatorId?: string | null }): Crane {
+      assertOperator(input.defaultOperatorId);
       const id = crypto.randomUUID();
       try {
         db.prepare(
@@ -93,7 +100,10 @@ export function createAdminService(db: Db) {
     updateCrane(id: string, input: Partial<{ classId: string; regNo: string; name: string; status: "available" | "maintenance"; defaultOperatorId: string | null }>): Crane {
       const row = db.prepare("SELECT * FROM cranes WHERE id = ?").get(id) as CraneRow | undefined;
       if (!row) throw notFound("Crane not found");
-      if (input.status && row.status === "on_job") throw conflict("Crane is on an active job; complete or reassign the job first");
+      if (input.status && input.status !== row.status && row.status === "on_job") {
+        throw conflict("Crane is on an active job; complete or reassign the job first");
+      }
+      assertOperator(input.defaultOperatorId);
       db.prepare(
         "UPDATE cranes SET class_id = ?, reg_no = ?, name = ?, status = ?, default_operator_id = ? WHERE id = ?",
       ).run(

@@ -12,8 +12,11 @@ export function Invoice() {
   if (error) return <ErrorNote error={error} />;
   if (!b || !catalog) return <Spinner />;
 
-  const gstRate = catalog.pricing.gstRate;
+  const closed = [...(b.events ?? [])].reverse().find((e) => e.status === "completed" || e.status === "cancelled");
+  const invoiceDate = closed?.createdAt ?? b.updatedAt;
   const bill = b.finalQuote ?? b.quote;
+  // The rate stored on the quote, so later GST changes never rewrite an issued invoice.
+  const gstRate = bill.gstRate ?? (bill.subtotal > 0 ? Math.round((bill.gst / bill.subtotal) * 100) / 100 : catalog.pricing.gstRate);
   let lines: { label: string; amount: number }[];
   if (b.status === "cancelled") {
     lines = [{ label: "Cancellation charge (crane dispatched)", amount: Math.round(b.amountDue / (1 + gstRate)) }];
@@ -46,7 +49,7 @@ export function Invoice() {
         <div className="invoice__meta">
           <h2>TAX INVOICE</h2>
           <p>Invoice no: {b.code}</p>
-          <p>Date: {formatDateTime(b.updatedAt)}</p>
+          <p>Date: {formatDateTime(invoiceDate)}</p>
           <p>SAC: {catalog.business.sac}</p>
         </div>
       </header>

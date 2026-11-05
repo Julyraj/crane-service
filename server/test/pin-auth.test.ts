@@ -7,6 +7,7 @@ import { createApp } from "../src/app.ts";
 
 let server: Server;
 let base: string;
+let adminToken: string;
 const ADMIN = "9789473129";
 
 beforeAll(async () => {
@@ -53,6 +54,7 @@ describe("PIN mode", () => {
     expect((await call("POST", "/auth/pin/login", { phone: ADMIN, pin: "111111" })).status).toBe(400);
     const ok = await call("POST", "/auth/pin/login", { phone: ADMIN, pin: "246810", name: "Owner" });
     expect(ok.status).toBe(200);
+    adminToken = ok.body.token;
     expect(ok.body.user.role).toBe("admin");
     expect((await call("POST", "/auth/pin/status", { phone: ADMIN })).body.state).toBe("login");
   });
@@ -70,8 +72,22 @@ describe("PIN mode", () => {
     expect((await call("POST", "/auth/pin/login", { phone: "9876543210", pin: "112233" })).status).toBe(200);
   });
 
+  it("existing accounts without a PIN cannot be claimed by a stranger", async () => {
+    const admin = adminToken;
+    await call("POST", "/admin/users", { phone: "9444444444", name: "Real Customer", role: "customer" }, admin);
+    expect((await call("POST", "/auth/pin/status", { phone: "9444444444" })).body.state).toBe("needs_admin");
+    expect((await call("POST", "/auth/pin/login", { phone: "9444444444", pin: "222222" })).status).toBe(403);
+  });
+
+  it("ADMIN_PIN always recovers the admin account", async () => {
+    // admin changes their own PIN, then forgets it
+    const t = (await call("POST", "/auth/pin/login", { phone: ADMIN, pin: "246810" })).body.token;
+    expect((await call("POST", "/me/pin", { currentPin: "246810", newPin: "987654" }, t)).status).toBe(200);
+    expect((await call("POST", "/auth/pin/login", { phone: ADMIN, pin: "246810" })).status).toBe(200);
+  });
+
   it("operators need a PIN set by the admin", async () => {
-    const admin = (await call("POST", "/auth/pin/login", { phone: ADMIN, pin: "246810" })).body.token;
+    const admin = adminToken;
     await call("POST", "/admin/users", { phone: "9000000001", name: "Murugan", role: "operator" }, admin);
     expect((await call("POST", "/auth/pin/status", { phone: "9000000001" })).body.state).toBe("needs_admin");
     expect((await call("POST", "/auth/pin/login", { phone: "9000000001", pin: "123456" })).status).toBe(403);

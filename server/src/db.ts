@@ -101,6 +101,16 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN pin_hash TEXT;
   ALTER TABLE users ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  ALTER TABLE users ADD COLUMN pin_locked_until INTEGER;
+  ALTER TABLE bookings ADD COLUMN pricing_json TEXT;
+  ALTER TABLE bookings ADD COLUMN completed_at TEXT;
+  ALTER TABLE bookings ADD COLUMN start_otp_failures INTEGER NOT NULL DEFAULT 0;
+  UPDATE bookings SET completed_at = (
+    SELECT MAX(e.created_at) FROM booking_events e WHERE e.booking_id = bookings.id AND e.status = 'completed'
+  ) WHERE status = 'completed';
+  CREATE INDEX bookings_completed ON bookings(completed_at);
+  `,
 ];
 
 export function openDb(file: string): Db {

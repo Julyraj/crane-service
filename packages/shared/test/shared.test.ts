@@ -7,6 +7,8 @@ import {
   estimateRoadKm,
   istHour,
   phoneSchema,
+  craneUpdateSchema,
+  regNoSchema,
   recommendCrane,
 } from "../src/index.ts";
 
@@ -87,6 +89,15 @@ describe("helpers", () => {
     const km = estimateRoadKm({ lat: 11.6643, lng: 78.146 }, { lat: 11.341, lng: 77.7172 });
     expect(km).toBeGreaterThan(60);
     expect(km).toBeLessThan(90);
+  });
+  it("normalises vehicle registration numbers", () => {
+    expect(regNoSchema.parse("tn30aa1301")).toBe("TN 30 AA 1301");
+    expect(regNoSchema.parse(" TN 30 AA 1301 ")).toBe("TN 30 AA 1301");
+    expect(regNoSchema.parse("TN 30 1234")).toBe("TN 30 1234");
+    expect(regNoSchema.safeParse("12345").success).toBe(false);
+  });
+  it("crane updates never default the status", () => {
+    expect(craneUpdateSchema.parse({ defaultOperatorId: null })).toEqual({ defaultOperatorId: null });
   });
   it("validates booking payloads", () => {
     const r = createBookingSchema.safeParse({

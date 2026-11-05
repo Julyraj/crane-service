@@ -9,7 +9,9 @@
 
 PIN mode trade-off: it does not prove the customer owns the phone number. Dispatch confirms each
 booking by phone before sending a crane, and an admin can reset any PIN from Team. PINs are
-stored as scrypt hashes, guessing is rate limited, and accounts lock after 10 wrong PINs.
+stored as scrypt hashes, guessing is rate limited, and 10 wrong PINs lock an account for an hour.
+`ADMIN_PIN` always works for the admin numbers (first sign-in and recovery); change it on the
+server to rotate it.
 
 ## Render (one click)
 
