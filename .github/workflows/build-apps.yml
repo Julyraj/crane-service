@@ -1,14 +1,23 @@
 name: Build apps
 
 # Builds every installable version of CraneGo and publishes them as a GitHub Release.
-# Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed, or manually from the Actions tab.
+# Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed, or manually from the Actions tab
+# (Build apps -> Run workflow), in which case the release tag is created from the version input.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (without the v), e.g. 0.1.0"
+        required: true
+        default: "0.1.0"
 
 permissions:
   contents: read
+
+env:
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
 
 jobs:
   android:
@@ -33,7 +42,7 @@ jobs:
       - name: Build APK
         working-directory: apps/mobile/android
         run: ./gradlew assembleDebug --no-daemon
-      - run: mkdir -p dist-apps && cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk dist-apps/CraneGo-${GITHUB_REF_NAME#v}-android.apk
+      - run: mkdir -p dist-apps && cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk dist-apps/CraneGo-${TAG#v}-android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -67,7 +76,6 @@ jobs:
   release:
     name: Publish release
     needs: [android, desktop]
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,6 +87,9 @@ jobs:
       - run: ls -la artifacts
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
+          name: CraneGo ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           files: artifacts/*
           body: |
             ## Downloads
