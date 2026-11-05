@@ -15,6 +15,8 @@ export interface AppConfig {
     phone: string;
     upiId: string | null;
     gstin: string | null;
+    /** SAC code printed on invoices; confirm with your accountant. */
+    sac: string;
     address: string;
     yard: { lat: number; lng: number };
   };
@@ -53,6 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       phone: env.BUSINESS_PHONE ?? "9789473129",
       upiId: env.BUSINESS_UPI_ID || null,
       gstin: env.BUSINESS_GSTIN || null,
+      sac: env.BUSINESS_SAC || "997313",
       address: env.BUSINESS_ADDRESS ?? "Salem, Tamil Nadu",
       yard: {
         lat: env.YARD_LAT ? Number(env.YARD_LAT) : DEFAULT_YARD.lat,

@@ -90,6 +90,7 @@ export interface BusinessInfo {
   phone: string;
   upiId: string | null;
   gstin: string | null;
+  sac: string;
   address: string;
   yard: { lat: number; lng: number };
 }
