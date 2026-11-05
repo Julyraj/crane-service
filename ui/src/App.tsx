@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Role } from "@crane/shared";
 import { Layout } from "./components/Layout.tsx";
 import { Spinner } from "./components/ui.tsx";
+import { needsServerSetup } from "./api.ts";
+import { ServerSetup } from "./pages/ServerSetup.tsx";
 import { useSession } from "./session.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Login } from "./pages/Login.tsx";
@@ -34,6 +36,7 @@ function HomeRoute() {
 }
 
 export function App() {
+  if (needsServerSetup()) return <ServerSetup />;
   return (
     <Routes>
       <Route path="/bookings/:id/invoice" element={<RequireAuth><Invoice /></RequireAuth>} />

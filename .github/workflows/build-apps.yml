@@ -1,0 +1,95 @@
+name: Build apps
+
+# Builds every installable version of CraneGo and publishes them as a GitHub Release.
+# Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed, or manually from the Actions tab.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @crane/ui build
+      - name: Sync web app into Android project
+        working-directory: apps/mobile
+        run: npm ci && npx cap sync android
+      - name: Build APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+      - run: mkdir -p dist-apps && cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk dist-apps/CraneGo-${GITHUB_REF_NAME#v}-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist-apps/*
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build installer
+        working-directory: apps/desktop
+        run: npm ci && npx electron-builder --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/out/*.exe
+            apps/desktop/out/*.dmg
+            apps/desktop/out/*.AppImage
+
+  release:
+    name: Publish release
+    needs: [android, desktop]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: ls -la artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body: |
+            ## Downloads
+
+            | File | For |
+            | --- | --- |
+            | `CraneGo-*-android.apk` | Android phones (customers and operators). Open the file on the phone and allow "Install unknown apps". |
+            | `CraneGo-Setup-*.exe` | Windows installer (office / dispatch) |
+            | `CraneGo-*-portable.exe` | Windows, runs without installing |
+            | `CraneGo-*-mac-*.dmg` | macOS (right-click → Open the first time; the app is not notarised) |
+            | `CraneGo-*-linux.AppImage` | Linux |
+
+            On first launch the apps ask for your CraneGo website address (for example `https://cranego.onrender.com`).
+            The Android file is a test build signed with a debug key; a Play Store release needs your own signing key.

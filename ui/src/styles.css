@@ -285,3 +285,8 @@ textarea { resize: vertical; }
 /* Leaflet sits under sticky bars */
 .leaflet-pane, .leaflet-top, .leaflet-bottom { z-index: 1 !important; }
 .leaflet-control { z-index: 2 !important; }
+
+/* Native app first-launch server setup */
+.setup { min-height: 100dvh; display: grid; place-items: center; padding: 1rem; background: var(--ink); }
+.setup .card { width: min(420px, 100%); }
+.setup .brand { color: var(--ink); cursor: default; }

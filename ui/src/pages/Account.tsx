@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "@crane/shared";
-import { api } from "../api.ts";
+import { api, getApiBase, isNativeApp, setServerUrl } from "../api.ts";
 import { useSession } from "../session.tsx";
 import { Card, ErrorNote, Field } from "../components/ui.tsx";
 import { useApi } from "../hooks.ts";
@@ -96,6 +96,21 @@ export function Account() {
         </form>
       </Card>
       {cfg?.mode === "pin" && <ChangePin />}
+      {isNativeApp && (
+        <Card title="Server">
+          <p className="muted">{getApiBase()}</p>
+          <button
+            className="btn btn--ghost"
+            onClick={async () => {
+              await signOut();
+              setServerUrl(null);
+              location.reload();
+            }}
+          >
+            Change server
+          </button>
+        </Card>
+      )}
       <button
         className="btn btn--ghost"
         onClick={async () => {
