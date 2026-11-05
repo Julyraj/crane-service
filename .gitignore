@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-*
+.env
+.DS_Store
+apps/desktop/out/
+apps/mobile/android/
+apps/mobile/ios/
+coverage/
+*.tsbuildinfo

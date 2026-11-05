@@ -1,0 +1,24 @@
+{
+  "name": "crane-service",
+  "private": true,
+  "type": "module",
+  "description": "CraneGo — on-demand crane booking platform for Sri Venkateswara Crane Service (web, mobile, desktop).",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "pnpm --filter @crane/server dev",
+    "dev:ui": "pnpm --filter @crane/ui dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @crane/server start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "seed:demo": "pnpm --filter @crane/server seed:demo"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@10.28.0"
+}
