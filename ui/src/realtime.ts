@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { apiBase, getToken } from "./api.ts";
+import { getApiBase, getToken } from "./api.ts";
 
 type Handler = (event: string, data: unknown) => void;
 const handlers = new Set<Handler>();
@@ -11,7 +11,7 @@ async function connect() {
   if (!token || controller) return;
   controller = new AbortController();
   try {
-    const res = await fetch(`${apiBase}/api/events`, {
+    const res = await fetch(`${getApiBase()}/api/events`, {
       headers: { authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
