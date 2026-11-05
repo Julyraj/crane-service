@@ -7,15 +7,17 @@ import { Card, ErrorNote, Field } from "../../components/ui.tsx";
 export function AdminTeam() {
   const [role, setRole] = useState<"" | Role>("operator");
   const users = useApi<(User & { jobs: number })[]>(`/admin/users${role ? `?role=${role}` : ""}`);
-  const [form, setForm] = useState({ phone: "", name: "", role: "operator" as Role });
+  const [form, setForm] = useState({ phone: "", name: "", role: "operator" as Role, pin: "" });
+  const { data: cfg } = useApi<{ mode: "otp" | "pin" }>("/auth/config");
   const [error, setError] = useState<string | null>(null);
 
   async function save(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await api("/admin/users", { body: form });
-      setForm({ phone: "", name: "", role: form.role });
+      const { pin, ...rest } = form;
+      await api("/admin/users", { body: pin ? { ...rest, pin } : rest });
+      setForm({ phone: "", name: "", role: form.role, pin: "" });
       users.reload();
     } catch (err) {
       setError((err as Error).message);
@@ -25,7 +27,7 @@ export function AdminTeam() {
   return (
     <div className="stack">
       <h1>Team & customers</h1>
-      <Card title="Add operator / admin" >
+      <Card title="Add / update a person">
         <form onSubmit={save} className="stack">
           <div className="row3">
             <Field label="Mobile">
@@ -42,9 +44,18 @@ export function AdminTeam() {
               </select>
             </Field>
           </div>
+          {cfg?.mode === "pin" && (
+            <Field label="Sign-in PIN (6 digits)" hint="Set a PIN for new staff, or enter a new one to reset a forgotten or locked PIN.">
+              <input inputMode="numeric" maxLength={6} value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "") })} />
+            </Field>
+          )}
           <ErrorNote error={error} />
           <button className="btn btn--primary">Save</button>
-          <p className="fineprint">They sign in with this mobile number via OTP. Existing users are updated.</p>
+          <p className="fineprint">
+            {cfg?.mode === "pin"
+              ? "They sign in with this mobile number and PIN. Use this form to update an existing person or reset any customer's PIN."
+              : "They sign in with this mobile number via OTP. Existing users are updated."}
+          </p>
         </form>
       </Card>
       <Card

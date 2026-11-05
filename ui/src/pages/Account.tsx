@@ -4,6 +4,47 @@ import type { User } from "@crane/shared";
 import { api } from "../api.ts";
 import { useSession } from "../session.tsx";
 import { Card, ErrorNote, Field } from "../components/ui.tsx";
+import { useApi } from "../hooks.ts";
+
+function ChangePin() {
+  const [currentPin, setCurrent] = useState("");
+  const [newPin, setNew] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const digits = (v: string) => v.replace(/\D/g, "").slice(0, 6);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMsg(null);
+    try {
+      await api("/me/pin", { body: { currentPin, newPin } });
+      setCurrent("");
+      setNew("");
+      setMsg("PIN changed");
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+  return (
+    <Card title="Change PIN">
+      <form onSubmit={save} className="stack">
+        <div className="row2">
+          <Field label="Current PIN">
+            <input type="password" inputMode="numeric" autoComplete="current-password" value={currentPin} onChange={(e) => setCurrent(digits(e.target.value))} required />
+          </Field>
+          <Field label="New 6-digit PIN">
+            <input type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(e) => setNew(digits(e.target.value))} required />
+          </Field>
+        </div>
+        <ErrorNote error={error} />
+        {msg && <p className="note note--ok">{msg}</p>}
+        <button className="btn btn--primary" disabled={currentPin.length !== 6 || newPin.length !== 6}>
+          Change PIN
+        </button>
+      </form>
+    </Card>
+  );
+}
 
 export function Account() {
   const { user, setUser, signOut } = useSession();
@@ -13,6 +54,7 @@ export function Account() {
   const [gstin, setGstin] = useState(user?.gstin ?? "");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { data: cfg } = useApi<{ mode: "otp" | "pin" }>("/auth/config");
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -53,6 +95,7 @@ export function Account() {
           <button className="btn btn--primary">Save</button>
         </form>
       </Card>
+      {cfg?.mode === "pin" && <ChangePin />}
       <button
         className="btn btn--ghost"
         onClick={async () => {

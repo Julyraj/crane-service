@@ -97,6 +97,10 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE users ADD COLUMN pin_hash TEXT;
+  ALTER TABLE users ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDb(file: string): Db {

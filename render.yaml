@@ -1,0 +1,51 @@
+# One-click deploy on Render (https://render.com).
+# Click the "Deploy to Render" button in README.md, sign in with GitHub, and fill in
+# ADMIN_PIN (6 digits) when asked. A persistent disk keeps the SQLite database safe
+# across restarts, which needs a paid instance (the free plan wipes data on restart).
+services:
+  - type: web
+    name: cranego
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npx --yes pnpm@10.28.0 install --frozen-lockfile && npx --yes pnpm@10.28.0 build
+    startCommand: node --disable-warning=ExperimentalWarning server/dist/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: cranego-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: AUTH_MODE
+        value: pin
+      - key: OTP_SECRET
+        generateValue: true
+      - key: ADMIN_PHONES
+        value: "9789473129"
+      - key: ADMIN_PIN
+        sync: false
+      - key: BUSINESS_NAME
+        value: Sri Venkateswara Crane Service
+      - key: BUSINESS_PHONE
+        value: "9789473129"
+      - key: BUSINESS_ADDRESS
+        value: Salem, Tamil Nadu
+      - key: BUSINESS_UPI_ID
+        sync: false
+      - key: BUSINESS_GSTIN
+        sync: false
+      - key: BUSINESS_SAC
+        value: "997313"
+      - key: YARD_LAT
+        value: "11.6643"
+      - key: YARD_LNG
+        value: "78.1460"
+      - key: CORS_ORIGINS
+        value: https://localhost,capacitor://localhost

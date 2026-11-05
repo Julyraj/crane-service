@@ -15,6 +15,19 @@ One codebase runs on **web**, **mobile** (installable PWA + Capacitor Android/iO
 
 Market research behind the feature set: [`docs/MARKET-ANALYSIS.md`](docs/MARKET-ANALYSIS.md).
 
+## Go live in one click
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Julyraj/crane-service)
+
+1. Click the button and sign in to Render with your GitHub account.
+2. When asked, type a 6-digit **ADMIN_PIN** (your first admin sign-in code). Optionally add your UPI ID and GSTIN.
+3. Add a payment card (the Starter instance + 1 GB disk keeps your data safe) and click **Apply**.
+4. After about 5 minutes, open the `https://cranego-….onrender.com` link, sign in with **9789473129** and your ADMIN_PIN.
+5. In the app: set your real prices (Pricing), add cranes (Fleet), and add operators with their PINs (Team).
+
+No SMS account is needed: customers create an account with their mobile number and a 6-digit PIN.
+SMS OTP login can be switched on later (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
+
 ## Quick start
 
 Requires Node 22.13+ and pnpm 10.
@@ -72,5 +85,5 @@ How it works: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 - Replace the **sample rates** in Admin → Pricing with your real tariffs.
 - Set `BUSINESS_GSTIN`, `BUSINESS_UPI_ID`, and have your accountant confirm `BUSINESS_SAC` and the GST split.
-- Configure a real SMS provider (`SMS_PROVIDER=msg91`); in production the console provider never reveals OTPs.
+- Sign-in uses mobile + 6-digit PIN by default (no SMS gateway needed). To use SMS OTP instead, set `AUTH_MODE=otp` and configure `SMS_PROVIDER=msg91` after DLT registration.
 - Add your real cranes (registration numbers) in Admin → Fleet and your operators in Admin → Team.

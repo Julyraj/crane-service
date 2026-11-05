@@ -61,6 +61,9 @@ guidance; the operator confirms against the manufacturer's load chart.
 
 | Method & path | Who | Purpose |
 | --- | --- | --- |
+| `GET /api/auth/config` | public | Active sign-in mode (`pin` or `otp`) |
+| `POST /api/auth/pin/status`, `POST /api/auth/pin/login` | public | PIN mode: which step to show; sign in / register |
+| `POST /api/me/pin` | user | Change own PIN |
 | `POST /api/auth/otp/request` | public | Send OTP (rate limited per phone and IP) |
 | `POST /api/auth/otp/verify` | public | Verify OTP → bearer token (30-day session) |
 | `GET /api/auth/me`, `POST /api/auth/logout`, `PATCH /api/me` | user | Session and profile |
@@ -78,6 +81,7 @@ guidance; the operator confirms against the manufacturer's load chart.
 
 ## Security
 
+- Sign-in has two modes (`AUTH_MODE`): mobile + 6-digit PIN (scrypt-hashed, rate limited, locks after 10 wrong PINs; the first admin needs `ADMIN_PIN`; operators get PINs from an admin), or SMS OTP.
 - Phone-OTP login: 6-digit codes stored as HMAC, 5-minute expiry, 5 attempts, per-phone and per-IP rate limits, constant-time comparison.
 - Sessions: random 256-bit bearer tokens, stored as SHA-256 hashes, 30-day expiry. No cookies, so no CSRF surface; CORS is an explicit allowlist.
 - Authorization is checked server-side on every route; customers and operators only see their own bookings (other bookings return 404).

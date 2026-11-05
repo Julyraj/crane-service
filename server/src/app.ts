@@ -24,12 +24,15 @@ import {
   updateProfileSchema,
   upsertUserSchema,
   verifyOtpSchema,
+  pinStatusSchema,
+  pinLoginSchema,
+  changePinSchema,
   type CatalogResponse,
 } from "@crane/shared";
 import type { AppConfig } from "./config.ts";
 import type { Db } from "./db.ts";
 import { HttpError } from "./errors.ts";
-import { bearerToken, createAuth, requireRole, requireUser, toUser, type UserRow } from "./auth.ts";
+import { bearerToken, createAuth, hashPin, requireRole, requireUser, toUser, type UserRow } from "./auth.ts";
 import { createSmsSender, type SmsSender } from "./sms.ts";
 import { RealtimeHub } from "./realtime.ts";
 import { createBookingService } from "./services/bookings.ts";
@@ -102,6 +105,25 @@ export function createApp({ db, config, sms }: AppDeps) {
   api.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
   // ---------- Auth ----------
+  api.get("/auth/config", (_req, res) => res.json({ mode: config.authMode }));
+
+  api.post("/auth/pin/status", (req, res) => {
+    const { phone } = pinStatusSchema.parse(req.body);
+    res.json(auth.pinStatus(phone, req.ip ?? "unknown"));
+  });
+
+  api.post("/auth/pin/login", (req, res) => {
+    const { phone, pin, name } = pinLoginSchema.parse(req.body);
+    res.json(auth.pinLogin(phone, pin, req.ip ?? "unknown", name));
+  });
+
+  api.post("/me/pin", (req, res) => {
+    const user = requireUser(req);
+    const { newPin, currentPin } = changePinSchema.parse(req.body);
+    auth.changePin(user.id, newPin, currentPin);
+    res.json({ ok: true });
+  });
+
   api.post("/auth/otp/request", async (req, res) => {
     const { phone } = requestOtpSchema.parse(req.body);
     const result = await auth.requestOtp(phone, req.ip ?? "unknown");
@@ -261,7 +283,10 @@ export function createApp({ db, config, sms }: AppDeps) {
 
   api.post("/admin/users", (req, res) => {
     const actor = requireRole(req, "admin");
-    res.json(admin.upsertUser(actor, upsertUserSchema.parse(req.body)));
+    const input = upsertUserSchema.parse(req.body);
+    const user = admin.upsertUser(actor, input);
+    if (input.pin) db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0 WHERE id = ?").run(hashPin(input.pin), user.id);
+    res.json(user);
   });
 
   api.get("/admin/pricing", (req, res) => {

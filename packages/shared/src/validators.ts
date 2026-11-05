@@ -17,6 +17,21 @@ export const verifyOtpSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
 });
 
+export const pinSchema = z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits");
+
+export const pinStatusSchema = z.object({ phone: phoneSchema });
+
+export const pinLoginSchema = z.object({
+  phone: phoneSchema,
+  pin: pinSchema,
+  name: z.string().trim().min(1).max(80).optional(),
+});
+
+export const changePinSchema = z.object({
+  currentPin: pinSchema.optional(),
+  newPin: pinSchema,
+});
+
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   company: z.string().trim().max(120).optional(),
@@ -117,6 +132,8 @@ export const upsertUserSchema = z.object({
   phone: phoneSchema,
   name: z.string().trim().min(1).max(80),
   role: z.enum(["customer", "operator", "admin"]),
+  /** Optional: set or reset this user's sign-in PIN (PIN mode). */
+  pin: pinSchema.optional(),
 });
 
 const ratesSchema = z.object({

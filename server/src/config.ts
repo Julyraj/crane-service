@@ -8,6 +8,10 @@ export interface AppConfig {
   adminPhones: string[];
   corsOrigins: string[];
   devOtp: boolean;
+  /** "otp" = SMS one-time code; "pin" = mobile + 6-digit PIN (no SMS gateway needed). */
+  authMode: "otp" | "pin";
+  /** Setup PIN for ADMIN_PHONES numbers in PIN mode (first sign-in). */
+  adminPin: string | null;
   otpSecret: string;
   sms: { provider: "console" | "msg91"; msg91AuthKey?: string; msg91TemplateId?: string };
   business: {
@@ -35,6 +39,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (production && devOtp) {
     throw new Error("DEV_OTP must not be enabled in production");
   }
+  const smsConfigured = env.SMS_PROVIDER === "msg91";
+  const authMode: "otp" | "pin" =
+    env.AUTH_MODE === "otp" || env.AUTH_MODE === "pin" ? env.AUTH_MODE : smsConfigured || devOtp ? "otp" : "pin";
+  if (production && authMode === "otp" && !smsConfigured) {
+    throw new Error("AUTH_MODE=otp needs an SMS provider in production (set SMS_PROVIDER=msg91) or use AUTH_MODE=pin");
+  }
+  const adminPin = env.ADMIN_PIN?.trim() || null;
+  if (authMode === "pin" && adminPin && !/^\d{6}$/.test(adminPin)) throw new Error("ADMIN_PIN must be exactly 6 digits");
+  if (production && authMode === "pin" && !adminPin) throw new Error("ADMIN_PIN (6 digits) is required in PIN mode");
   const otpSecret = env.OTP_SECRET ?? (production ? "" : "dev-only-otp-secret");
   if (!otpSecret) throw new Error("OTP_SECRET is required in production");
   return {
@@ -44,6 +57,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminPhones: list(env.ADMIN_PHONES),
     corsOrigins: list(env.CORS_ORIGINS ?? "https://localhost,capacitor://localhost,http://localhost"),
     devOtp,
+    authMode,
+    adminPin,
     otpSecret,
     sms: {
       provider: env.SMS_PROVIDER === "msg91" ? "msg91" : "console",
