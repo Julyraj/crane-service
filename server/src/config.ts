@@ -42,7 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     production,
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
     adminPhones: list(env.ADMIN_PHONES),
-    corsOrigins: list(env.CORS_ORIGINS ?? "capacitor://localhost,http://localhost"),
+    corsOrigins: list(env.CORS_ORIGINS ?? "https://localhost,capacitor://localhost,http://localhost"),
     devOtp,
     otpSecret,
     sms: {

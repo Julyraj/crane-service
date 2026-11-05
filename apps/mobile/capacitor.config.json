@@ -1,0 +1,7 @@
+{
+  "appId": "in.svcrane.cranego",
+  "appName": "CraneGo",
+  "webDir": "../../ui/dist",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}
