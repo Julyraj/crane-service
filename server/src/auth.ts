@@ -10,8 +10,10 @@ import type { SmsSender } from "./sms.ts";
 const OTP_TTL_MS = 5 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL_MS = 30 * 24 * 3_600_000;
-/** Consecutive wrong PINs before the account is locked until an admin resets the PIN. */
+/** Consecutive wrong PINs before the account is temporarily locked. */
 const PIN_LOCK_AFTER = 10;
+/** Temporary lock (not permanent, so nobody can lock a real user out for good). */
+const PIN_LOCK_MS = 60 * 60_000;
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
 export function hashPin(pin: string): string {
@@ -40,6 +42,7 @@ export interface UserRow {
   created_at: string;
   pin_hash?: string | null;
   pin_failures?: number;
+  pin_locked_until?: number | null;
 }
 
 export const toUser = (r: UserRow): User => ({
@@ -101,27 +104,51 @@ export function createAuth(db: Db, config: AppConfig, sms: SmsSender) {
     requirePinMode();
     statusPerIp.check(`s:${ip}`);
     const user = findByPhone(phone);
-    if (user?.pin_hash) return { state: (user.pin_failures ?? 0) >= PIN_LOCK_AFTER ? "locked" : "login" };
-    if (config.adminPhones.includes(phone)) return { state: "admin_setup" };
-    if (user && user.role !== "customer") return { state: "needs_admin" };
+    const isAdminPhone = config.adminPhones.includes(phone);
+    if (user?.pin_hash) return { state: isLocked(user) && !isAdminPhone ? "locked" : "login" };
+    if (isAdminPhone) return { state: "admin_setup" };
+    // Existing accounts without a PIN (staff, or customers created before PIN mode) must get
+    // their PIN from an admin; otherwise anyone could claim them by choosing a PIN.
+    if (user) return { state: "needs_admin" };
     return { state: "register" };
   }
+
+  const isLocked = (u: UserRow) => (u.pin_locked_until ?? 0) > Date.now();
+  const adminPinMatches = (pin: string) =>
+    config.adminPin != null && crypto.timingSafeEqual(Buffer.from(sha256(pin)), Buffer.from(sha256(config.adminPin)));
 
   function pinLogin(phone: string, pin: string, ip: string, name?: string): { token: string; user: User } {
     requirePinMode();
     pinPerIp.check(`pi:${ip}`);
     pinPerPhone.check(`pp:${phone}`, "Too many attempts. Wait 15 minutes and try again.");
     let user = findByPhone(phone);
+    const isAdminPhone = config.adminPhones.includes(phone);
+
+    // ADMIN_PIN always works for the configured admin numbers: first sign-in, forgotten PIN,
+    // or recovery from a lock. Rotate it by changing ADMIN_PIN on the server.
+    if (isAdminPhone && adminPinMatches(pin)) {
+      if (!user) user = createUser(phone, "admin", name);
+      db.prepare("UPDATE users SET role = 'admin', pin_hash = ?, pin_failures = 0, pin_locked_until = NULL WHERE id = ?").run(
+        hashPin(pin),
+        user.id,
+      );
+      return issueSession({ ...user, role: "admin" });
+    }
 
     if (user?.pin_hash) {
-      if ((user.pin_failures ?? 0) >= PIN_LOCK_AFTER) {
-        throw new HttpError(423, "Account locked after too many wrong PINs. Contact us to reset your PIN.");
+      if (isLocked(user)) {
+        throw new HttpError(423, "Too many wrong PINs. Try again in an hour, or contact us to reset your PIN.");
       }
       if (!verifyPin(pin, user.pin_hash)) {
-        db.prepare("UPDATE users SET pin_failures = pin_failures + 1 WHERE id = ?").run(user.id);
+        const failures = (user.pin_failures ?? 0) + 1;
+        if (failures >= PIN_LOCK_AFTER) {
+          db.prepare("UPDATE users SET pin_failures = 0, pin_locked_until = ? WHERE id = ?").run(Date.now() + PIN_LOCK_MS, user.id);
+        } else {
+          db.prepare("UPDATE users SET pin_failures = ? WHERE id = ?").run(failures, user.id);
+        }
         throw badRequest("Incorrect PIN");
       }
-      db.prepare("UPDATE users SET pin_failures = 0 WHERE id = ?").run(user.id);
+      db.prepare("UPDATE users SET pin_failures = 0, pin_locked_until = NULL WHERE id = ?").run(user.id);
       if (!user.name && name) {
         db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, user.id);
         user.name = name;
@@ -129,21 +156,11 @@ export function createAuth(db: Db, config: AppConfig, sms: SmsSender) {
       return issueSession(user);
     }
 
-    if (config.adminPhones.includes(phone)) {
-      // First admin sign-in: must match the ADMIN_PIN configured on the server.
-      const ok =
-        config.adminPin != null && crypto.timingSafeEqual(Buffer.from(sha256(pin)), Buffer.from(sha256(config.adminPin)));
-      if (!ok) throw badRequest("Incorrect admin setup PIN");
-      if (!user) user = createUser(phone, "admin", name);
-      else db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
-      db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0 WHERE id = ?").run(hashPin(pin), user.id);
-      return issueSession({ ...user, role: "admin" });
-    }
-
-    if (user && user.role !== "customer") throw forbidden("Ask the admin to set your PIN first");
-    // Self-registration creates a customer account protected by the chosen PIN.
-    if (!user) user = createUser(phone, "customer", name);
-    else if (!user.name && name) db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, user.id);
+    if (isAdminPhone) throw badRequest("Incorrect admin setup PIN");
+    // Existing accounts without a PIN can't be claimed by whoever picks one first.
+    if (user) throw forbidden("Ask the admin to set your PIN first");
+    // Self-registration creates a new customer account protected by the chosen PIN.
+    user = createUser(phone, "customer", name);
     db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0 WHERE id = ?").run(hashPin(pin), user.id);
     return issueSession(findByPhone(phone)!);
   }
@@ -152,7 +169,7 @@ export function createAuth(db: Db, config: AppConfig, sms: SmsSender) {
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as UserRow | undefined;
     if (!row) throw unauthorized();
     if (row.pin_hash && (!currentPin || !verifyPin(currentPin, row.pin_hash))) throw badRequest("Current PIN is incorrect");
-    db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0 WHERE id = ?").run(hashPin(newPin), userId);
+    db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0, pin_locked_until = NULL WHERE id = ?").run(hashPin(newPin), userId);
   }
 
   const otpHash = (phone: string, code: string) =>

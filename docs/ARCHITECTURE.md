@@ -28,8 +28,14 @@ requested ──admin──▶ confirmed ──admin──▶ assigned ──ope
 ```
 
 - Transitions and the roles allowed to make them live in `packages/shared/src/booking-status.ts`.
-- On **assign** the server creates a 4-digit start OTP. Only the customer and admins can see it;
-  the operator must get it from the site contact to move `on_site → in_progress`.
+- On **assign** the server checks the crane and operator are free (no overlapping active booking,
+  with a 2-hour travel gap) and creates a 4-digit start OTP. Only the customer and admins can see it;
+  the operator must get it from the site contact to move `on_site → in_progress`. After 5 wrong
+  codes the start is locked; re-assigning issues a fresh code.
+- A crane shows **on job** only while it is dispatched (`en_route`, `on_site`, `in_progress`), so a
+  booking for next month does not block the crane today.
+- Each booking stores the pricing in force when it was made; the final bill, cancellation fee and
+  invoice GST use that snapshot, so later price changes never alter earlier jobs.
 - On **complete** the final bill is recomputed from actual duration (minimum hours still apply).
   If the admin agreed a negotiated price at confirmation, that price stands and only overtime
   beyond the quoted duration is added.
@@ -81,7 +87,8 @@ guidance; the operator confirms against the manufacturer's load chart.
 
 ## Security
 
-- Sign-in has two modes (`AUTH_MODE`): mobile + 6-digit PIN (scrypt-hashed, rate limited, locks after 10 wrong PINs; the first admin needs `ADMIN_PIN`; operators get PINs from an admin), or SMS OTP.
+- Sign-in has two modes (`AUTH_MODE`): mobile + 6-digit PIN or SMS OTP. PINs are scrypt-hashed and rate limited (5 tries per 15 minutes per number); 10 wrong PINs lock the account for an hour (temporary, so nobody can lock a real user out for good). `ADMIN_PIN` always signs in the admin numbers, which doubles as recovery. Existing accounts without a PIN can only get one from an admin, so they can't be claimed by a stranger.
+- Live update streams re-check the session before every event and heartbeat; logging out or a role change applies immediately.
 - Phone-OTP login: 6-digit codes stored as HMAC, 5-minute expiry, 5 attempts, per-phone and per-IP rate limits, constant-time comparison.
 - Sessions: random 256-bit bearer tokens, stored as SHA-256 hashes, 30-day expiry. No cookies, so no CSRF surface; CORS is an explicit allowlist.
 - Authorization is checked server-side on every route; customers and operators only see their own bookings (other bookings return 404).

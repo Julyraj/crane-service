@@ -6,6 +6,7 @@ import {
   estimateRoadKm,
   getCraneClass,
   isDispatched,
+  jobLengthMs,
   type Booking,
   type BookingEvent,
   type BookingStatus,
@@ -16,7 +17,7 @@ import {
 } from "@crane/shared";
 import type { AppConfig } from "../config.ts";
 import { nowIso, tx, type Db } from "../db.ts";
-import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
+import { badRequest, conflict, forbidden, HttpError, notFound } from "../errors.ts";
 import type { RealtimeHub } from "../realtime.ts";
 import { getPricing } from "./settings.ts";
 
@@ -47,6 +48,8 @@ interface BookingRow {
   crane_id: string | null;
   operator_id: string | null;
   start_otp: string | null;
+  start_otp_failures: number;
+  pricing_json: string | null;
   operator_lat: number | null;
   operator_lng: number | null;
   operator_seen_at: string | null;
@@ -198,14 +201,58 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
     addEvent(row.id, to, actor, note);
   }
 
+  const DISPATCHED = ["en_route", "on_site", "in_progress"];
+  /** Travel / setup buffer kept free between two jobs of the same crane or operator. */
+  const JOB_GAP_MS = 2 * 3_600_000;
+  const MAX_START_OTP_FAILURES = 5;
+
+  /** A crane is "on job" only while it is actually dispatched (en route, on site, lifting). */
   function releaseCrane(craneId: string | null, exceptBookingId: string) {
     if (!craneId) return;
     const busy = db
-      .prepare(
-        `SELECT 1 FROM bookings WHERE crane_id = ? AND id != ? AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) LIMIT 1`,
-      )
-      .get(craneId, exceptBookingId, ...ACTIVE_STATUSES);
+      .prepare(`SELECT 1 FROM bookings WHERE crane_id = ? AND id != ? AND status IN (${DISPATCHED.map(() => "?").join(",")}) LIMIT 1`)
+      .get(craneId, exceptBookingId, ...DISPATCHED);
     if (!busy) db.prepare("UPDATE cranes SET status = 'available' WHERE id = ? AND status = 'on_job'").run(craneId);
+  }
+
+  /** Booked crane/operator time must not overlap another active booking (plus a travel gap). */
+  function assertFree(row: BookingRow, craneId: string, operatorId: string) {
+    const start = new Date(row.scheduled_at).getTime();
+    const end = start + jobLengthMs(row.rental_type, row.duration);
+    const others = db
+      .prepare(
+        `SELECT b.code, b.crane_id, b.operator_id, b.scheduled_at, b.rental_type, b.duration
+         FROM bookings b WHERE b.id != ? AND (b.crane_id = ? OR b.operator_id = ?)
+         AND b.status IN (${ACTIVE_STATUSES.map(() => "?").join(",")})`,
+      )
+      .all(row.id, craneId, operatorId, ...ACTIVE_STATUSES) as {
+      code: string;
+      crane_id: string;
+      operator_id: string;
+      scheduled_at: string;
+      rental_type: Booking["rentalType"];
+      duration: number;
+    }[];
+    for (const o of others) {
+      const oStart = new Date(o.scheduled_at).getTime();
+      const oEnd = oStart + jobLengthMs(o.rental_type, o.duration);
+      if (start < oEnd + JOB_GAP_MS && oStart < end + JOB_GAP_MS) {
+        const what = o.crane_id === craneId ? "This crane" : "This operator";
+        throw conflict(`${what} is already booked for ${o.code} at an overlapping time`);
+      }
+    }
+  }
+
+  /** Pricing in force when the booking was made; falls back to current pricing for old rows. */
+  function bookingPricing(row: BookingRow): PricingConfig {
+    if (row.pricing_json) {
+      try {
+        return JSON.parse(row.pricing_json) as PricingConfig;
+      } catch {
+        /* fall through */
+      }
+    }
+    return getPricing(db);
   }
 
   return {
@@ -219,20 +266,22 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
       if (new Date(input.scheduledAt).getTime() < Date.now() - 15 * 60_000) {
         throw badRequest("Scheduled time is in the past");
       }
-      const { distanceKm, quote } = this.quote(input);
+      const pricing = getPricing(db);
+      const { distanceKm, quote } = this.quote(input, pricing);
       const id = crypto.randomUUID();
       const now = nowIso();
       tx(db, () => {
         db.prepare(
           `INSERT INTO bookings (id, code, customer_id, status, crane_class_id, rental_type, duration, scheduled_at,
              site_address, site_lat, site_lng, distance_km, load_tons, lift_height_m, radius_m, notes,
-             contact_name, contact_phone, quote_json, amount_due, payment_method, created_at, updated_at)
-           VALUES (?, ?, ?, 'requested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             contact_name, contact_phone, quote_json, amount_due, payment_method, created_at, updated_at, pricing_json)
+           VALUES (?, ?, ?, 'requested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           id, newCode(), customer.id, input.craneClassId, input.rentalType, input.duration,
           new Date(input.scheduledAt).toISOString(), input.siteAddress, input.siteLat, input.siteLng, distanceKm,
           input.loadTons ?? null, input.liftHeightM ?? null, input.radiusM ?? null, input.notes ?? null,
           input.contactName, input.contactPhone, JSON.stringify(quote), quote.total, input.paymentMethod, now, now,
+          JSON.stringify(pricing),
         );
         addEvent(id, "requested", customer);
       });
@@ -269,7 +318,7 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
     cancel(id: string, viewer: User, reason: string): Booking {
       const row = load(id, viewer);
       assertTransition(row, "cancelled", viewer);
-      const pricing = getPricing(db);
+      const pricing = bookingPricing(row);
       const fee = isDispatched(row.status) ? Math.round(pricing.cancellationFee * (1 + pricing.gstRate)) : 0;
       tx(db, () => {
         setStatus(row, "cancelled", viewer, { cancel_reason: reason, amount_due: fee }, reason);
@@ -307,23 +356,26 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
       const offered = getCraneClass(crane.class_id)!;
       if (offered.capacityTons < booked.capacityTons) throw badRequest(`${crane.name} is smaller than the booked ${booked.name}`);
       if (crane.status === "maintenance") throw conflict(`${crane.name} is under maintenance`);
-      if (crane.status === "on_job" && row.crane_id !== crane.id) throw conflict(`${crane.name} is on another job`);
       const operator = db.prepare("SELECT id, name, role FROM users WHERE id = ?").get(input.operatorId) as
         | { id: string; name: string | null; role: string }
         | undefined;
       if (!operator || operator.role !== "operator") throw badRequest("Operator not found");
+      assertFree(row, crane.id, operator.id);
 
-      const otp = row.start_otp ?? crypto.randomInt(0, 10_000).toString().padStart(4, "0");
+      // Re-assigning issues a fresh start code if the old one had wrong guesses against it.
+      const otp =
+        row.start_otp && row.start_otp_failures === 0
+          ? row.start_otp
+          : crypto.randomInt(0, 10_000).toString().padStart(4, "0");
       tx(db, () => {
-        if (row.crane_id && row.crane_id !== crane.id) releaseCrane(row.crane_id, row.id);
         setStatus(
           row,
           "assigned",
           admin,
-          { crane_id: crane.id, operator_id: operator.id, start_otp: otp },
+          { crane_id: crane.id, operator_id: operator.id, start_otp: otp, start_otp_failures: 0 },
           `${crane.name} (${crane.reg_no}) with operator ${operator.name ?? "—"}`,
         );
-        db.prepare("UPDATE cranes SET status = 'on_job' WHERE id = ?").run(crane.id);
+        if (row.crane_id && row.crane_id !== crane.id) releaseCrane(row.crane_id, row.id);
       });
       broadcast(id);
       return this.get(id, admin);
@@ -332,7 +384,10 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
     operatorStatus(id: string, viewer: User, status: "en_route" | "on_site"): Booking {
       const row = load(id, viewer);
       assertTransition(row, status, viewer);
-      tx(db, () => setStatus(row, status, viewer));
+      tx(db, () => {
+        setStatus(row, status, viewer);
+        if (status === "en_route" && row.crane_id) db.prepare("UPDATE cranes SET status = 'on_job' WHERE id = ?").run(row.crane_id);
+      });
       broadcast(id);
       return this.get(id, viewer);
     },
@@ -341,10 +396,25 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
       const row = load(id, viewer);
       if (row.operator_id !== viewer.id) throw forbidden("Only the assigned operator can start this job");
       assertTransition(row, "in_progress", viewer);
+      if (row.start_otp_failures >= MAX_START_OTP_FAILURES) {
+        throw new HttpError(423, "Too many wrong start codes. Call dispatch to issue a new code.");
+      }
       const ok =
         row.start_otp != null &&
         crypto.timingSafeEqual(Buffer.from(row.start_otp.padEnd(4)), Buffer.from(otp.padEnd(4).slice(0, 4)));
-      if (!ok) throw badRequest("Incorrect start OTP. Ask the site contact for the 4-digit code.");
+      if (!ok) {
+        db.prepare("UPDATE bookings SET start_otp_failures = start_otp_failures + 1 WHERE id = ?").run(id);
+        const left = MAX_START_OTP_FAILURES - row.start_otp_failures - 1;
+        if (left <= 0) {
+          addEvent(id, "note", viewer, "Start code locked after too many wrong attempts");
+          broadcast(id);
+        }
+        throw badRequest(
+          left > 0
+            ? `Incorrect start OTP. Ask the site contact for the 4-digit code (${left} attempt${left === 1 ? "" : "s"} left).`
+            : "Incorrect start OTP. Too many wrong codes: call dispatch to issue a new code.",
+        );
+      }
       tx(db, () => setStatus(row, "in_progress", viewer, {}, "Start OTP verified at site"));
       broadcast(id);
       return this.get(id, viewer);
@@ -353,7 +423,7 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
     complete(id: string, viewer: User, input: { actualDuration: number; note?: string }): Booking {
       const row = load(id, viewer);
       assertTransition(row, "completed", viewer);
-      const pricing = getPricing(db);
+      const pricing = bookingPricing(row);
       const finalQuote = computeQuote(
         {
           craneClassId: row.crane_class_id,
@@ -376,7 +446,12 @@ export function createBookingService(db: Db, config: AppConfig, hub: RealtimeHub
           row,
           "completed",
           viewer,
-          { actual_duration: input.actualDuration, final_quote_json: JSON.stringify(finalQuote), amount_due: amount },
+          {
+            actual_duration: input.actualDuration,
+            final_quote_json: JSON.stringify(finalQuote),
+            amount_due: amount,
+            completed_at: nowIso(),
+          },
           input.note,
         );
         releaseCrane(row.crane_id, row.id);

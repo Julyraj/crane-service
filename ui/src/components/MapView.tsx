@@ -64,8 +64,10 @@ export function MapView({ markers, onPick, center, height = 280, fit = true }: P
     if (!m || !g) return;
     g.clearLayers();
     for (const mk of markers) {
-      const marker = L.marker([mk.lat, mk.lng], { icon: icon(mk.kind), title: mk.label });
-      if (mk.label) marker.bindTooltip(mk.label);
+      // On a picker map, markers must not swallow taps: a tap anywhere (even on a marker) moves the pin.
+      const picking = Boolean(pickRef.current);
+      const marker = L.marker([mk.lat, mk.lng], { icon: icon(mk.kind), title: mk.label, interactive: !picking });
+      if (mk.label && !picking) marker.bindTooltip(mk.label);
       marker.addTo(g);
     }
     if (fit && markers.length > 1) {

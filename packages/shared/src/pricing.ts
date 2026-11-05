@@ -53,12 +53,22 @@ export interface Quote {
   unitRate: number;
   lines: QuoteLine[];
   subtotal: number;
+  /** GST rate used for this quote (kept so invoices never pick up later rate changes). */
+  gstRate?: number;
   gst: number;
   total: number;
   notes: string[];
 }
 
 const IST_OFFSET_MIN = 330;
+
+/** Time a booking occupies a crane and operator, in ms (daily = 24 h/day, monthly = 30 days). */
+export function jobLengthMs(rentalType: RentalType, duration: number): number {
+  const hour = 3_600_000;
+  if (rentalType === "hourly") return Math.ceil(duration) * hour;
+  if (rentalType === "daily") return Math.ceil(duration) * 24 * hour;
+  return Math.ceil(duration) * 30 * 24 * hour;
+}
 
 /** Hour of day (0-23) in India Standard Time. */
 export function istHour(d: Date): number {
@@ -159,6 +169,7 @@ export function computeQuote(input: QuoteInput, config: PricingConfig = DEFAULT_
     unitRate,
     lines,
     subtotal,
+    gstRate: config.gstRate,
     gst,
     total: subtotal + gst,
     notes,

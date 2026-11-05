@@ -89,7 +89,10 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && token) setToken(null);
+    if (res.status === 401 && token) {
+      setToken(null);
+      window.dispatchEvent(new Event("crane:signed-out"));
+    }
     throw new ApiError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`);
   }
   return data as T;

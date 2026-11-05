@@ -9,6 +9,7 @@ import {
   completeJobSchema,
   confirmBookingSchema,
   craneUpsertSchema,
+  craneUpdateSchema,
   createBookingSchema,
   CRANE_CLASSES,
   locationSchema,
@@ -50,8 +51,8 @@ const param = (req: Request, name: string) => String(req.params[name]);
 
 export function createApp({ db, config, sms }: AppDeps) {
   const app = express();
-  const hub = new RealtimeHub();
   const auth = createAuth(db, config, sms ?? createSmsSender(config));
+  const hub = new RealtimeHub((token) => auth.userFromToken(token));
   const bookings = createBookingService(db, config, hub);
   const admin = createAdminService(db);
   const quoteLimiter = new RateLimiter(120, 60_000);
@@ -245,7 +246,7 @@ export function createApp({ db, config, sms }: AppDeps) {
       "X-Accel-Buffering": "no",
     });
     res.write(`event: ready\ndata: {}\n\n`);
-    hub.add(user, res);
+    hub.add(bearerToken(req)!, user, res);
   });
 
   // ---------- Admin ----------
@@ -266,7 +267,7 @@ export function createApp({ db, config, sms }: AppDeps) {
 
   api.patch("/admin/cranes/:id", (req, res) => {
     requireRole(req, "admin");
-    res.json(admin.updateCrane(param(req, "id"), craneUpsertSchema.partial().parse(req.body)));
+    res.json(admin.updateCrane(param(req, "id"), craneUpdateSchema.parse(req.body)));
   });
 
   api.delete("/admin/cranes/:id", (req, res) => {
@@ -285,7 +286,9 @@ export function createApp({ db, config, sms }: AppDeps) {
     const actor = requireRole(req, "admin");
     const input = upsertUserSchema.parse(req.body);
     const user = admin.upsertUser(actor, input);
-    if (input.pin) db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0 WHERE id = ?").run(hashPin(input.pin), user.id);
+    if (input.pin) {
+      db.prepare("UPDATE users SET pin_hash = ?, pin_failures = 0, pin_locked_until = NULL WHERE id = ?").run(hashPin(input.pin), user.id);
+    }
     res.json(user);
   });
 
@@ -330,6 +333,11 @@ export function createApp({ db, config, sms }: AppDeps) {
     if (err instanceof HttpError) return void res.status(err.status).json({ error: err.message, details: err.details });
     if (err && typeof err === "object" && "type" in err && (err as { type: string }).type === "entity.parse.failed") {
       return void res.status(400).json({ error: "Malformed JSON" });
+    }
+    const status = (err as { status?: unknown } | null)?.status;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      // body-parser / express client errors (e.g. 413 payload too large)
+      return void res.status(status).json({ error: status === 413 ? "Request too large" : "Bad request" });
     }
     console.error(err);
     res.status(500).json({ error: "Something went wrong" });

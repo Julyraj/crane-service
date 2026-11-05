@@ -33,6 +33,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, [reloadCatalog]);
 
+  useEffect(() => {
+    const onSignedOut = () => {
+      disconnectRealtime();
+      setUser(null);
+    };
+    window.addEventListener("crane:signed-out", onSignedOut);
+    return () => window.removeEventListener("crane:signed-out", onSignedOut);
+  }, []);
+
   const signIn = useCallback((token: string, u: User) => {
     setToken(token);
     setUser(u);
