@@ -1,0 +1,28 @@
+{
+  "name": "cranego-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CraneGo desktop app (Windows, macOS, Linux) for dispatchers and office staff.",
+  "main": "main.cjs",
+  "author": "Sri Venkateswara Crane Service",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "in.svcrane.cranego",
+    "productName": "CraneGo",
+    "directories": { "output": "out" },
+    "files": ["main.cjs", "preload.cjs", "settings.html", "offline.html", "icon.png"],
+    "win": { "target": "nsis", "icon": "icon.png" },
+    "mac": { "target": "dmg", "category": "public.app-category.business", "icon": "icon.png" },
+    "linux": { "target": ["AppImage", "deb"], "category": "Office", "icon": "icon.png" }
+  }
+}

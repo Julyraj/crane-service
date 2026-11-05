@@ -1,0 +1,9 @@
+# Desktop (Electron) and mobile (Capacitor) shells are installed separately
+# so the core web/server install never downloads native toolchains.
+packages:
+  - packages/*
+  - server
+  - ui
+
+onlyBuiltDependencies:
+  - esbuild
