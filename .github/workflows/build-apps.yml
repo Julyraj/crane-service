@@ -39,6 +39,15 @@ jobs:
       - name: Sync web app into Android project
         working-directory: apps/mobile
         run: npm ci && npx cap sync android
+      - name: Stamp version
+        working-directory: apps/mobile/android
+        run: |
+          VERSION="${TAG#v}"
+          sed -i "s/versionName \".*\"/versionName \"$VERSION\"/" app/build.gradle
+          # versionCode must grow with every release: v0.1.2 -> 102, v1.4.0 -> 10400
+          IFS=. read -r MA MI PA <<< "$VERSION"
+          sed -i "s/versionCode [0-9]*/versionCode $((MA * 10000 + MI * 100 + PA))/" app/build.gradle
+          grep -E "versionCode|versionName" app/build.gradle
       - name: Build APK
         working-directory: apps/mobile/android
         run: ./gradlew assembleDebug --no-daemon
@@ -64,7 +73,11 @@ jobs:
           node-version: 22
       - name: Build installer
         working-directory: apps/desktop
-        run: npm ci && npx electron-builder --publish never
+        shell: bash
+        run: |
+          npm ci
+          npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+          npx electron-builder --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
